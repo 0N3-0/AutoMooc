@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         超星学习通自动刷课
 // @namespace    http://tampermonkey.net/
-// @version      2.3
-// @description  自动播放视频、跳过已完成章节、跳过PPT测试、倍速播放、卡顿检测、全章节重扫描
+// @version      2.4
+// @description  自动播放视频、跳过已完成章节、全章节确认扫描、跳过PPT测试、倍速播放、卡顿检测
 // @author       You
 // @match        https://mooc1.chaoxing.com/mycourse/studentstudy*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=chaoxing.com
@@ -37,6 +37,13 @@
   let processedChapters = new Set();
   let isRescanning = false;
   let skipCompletedChapters = true;
+  let rescanStats = {
+    total: 0,
+    skipped: 0,
+    completed: 0,
+    incomplete: 0,
+    processed: []
+  };
 
   function log(...args) {
     console.log("[AutoNext]", ...args);
@@ -272,7 +279,15 @@
   // ===== 处理第一轮完成后的重扫描 =====
   function handleFirstPassComplete(list) {
     if (firstPassCompleted) {
-      log("重扫描完成，所有章节已处理");
+      log("========================================");
+      log("🎉 重扫描完成！所有章节已处理完毕");
+      log("========================================");
+      log("重扫描统计:");
+      log("  - 总章节数:", rescanStats.total);
+      log("  - 已跳过 (PPT/测验等):", rescanStats.skipped);
+      log("  - 已完成视频:", rescanStats.completed);
+      log("  - 重新播放未完成:", rescanStats.incomplete);
+      log("========================================");
       isRescanning = false;
       updateControlPanel();
       return;
@@ -283,23 +298,64 @@
       return;
     }
 
-    log("第一轮扫描完成，开始重扫描未完成章节");
+    log("========================================");
+    log("🔍 第一轮扫描完成，开始全章节确认扫描");
+    log("========================================");
     firstPassCompleted = true;
     isRescanning = true;
+    
+    // 重置统计
+    rescanStats = {
+      total: list.length,
+      skipped: 0,
+      completed: 0,
+      incomplete: 0,
+      processed: []
+    };
+    
     updateControlPanel();
 
+    // 先输出扫描计划
+    log("扫描计划: 检查所有", list.length, "个章节");
+    
     for (let i = 0; i < list.length; i++) {
       const chapter = list[i];
-      if (isSkipChapter(chapter.title)) continue;
-      if (isChapterCompleted(chapter.el)) continue;
-
-      log("重扫描: 找到未完成章节", i, chapter.title);
+      
+      // 跳过非视频章节
+      if (isSkipChapter(chapter.title)) {
+        log(`[${i + 1}/${list.length}] ⏭️ 跳过非视频:`, chapter.title);
+        rescanStats.skipped++;
+        rescanStats.processed.push({ index: i, title: chapter.title, status: 'skipped' });
+        continue;
+      }
+      
+      // 检查是否已完成
+      if (isChapterCompleted(chapter.el)) {
+        log(`[${i + 1}/${list.length}] ✅ 已完成:`, chapter.title);
+        rescanStats.completed++;
+        rescanStats.processed.push({ index: i, title: chapter.title, status: 'completed' });
+        continue;
+      }
+      
+      // 找到未完成的视频章节，开始播放
+      log(`[${i + 1}/${list.length}] 🎬 重新播放未完成:`, chapter.title);
+      rescanStats.incomplete++;
+      rescanStats.processed.push({ index: i, title: chapter.title, status: 'incomplete' });
       chapter.el.click();
       setTimeout(scan, CONFIG.SWITCH_DELAY);
       return;
     }
 
-    log("重扫描: 所有视频章节已完成");
+    // 所有章节都处理完毕
+    log("========================================");
+    log("✅ 全章节扫描完成！未找到未完成的视频");
+    log("========================================");
+    log("扫描结果统计:");
+    log("  - 总章节数:", rescanStats.total);
+    log("  - 已跳过 (PPT/测验等):", rescanStats.skipped);
+    log("  - 已完成视频:", rescanStats.completed);
+    log("  - 重新播放未完成:", rescanStats.incomplete);
+    log("========================================");
     isRescanning = false;
     updateControlPanel();
   }
