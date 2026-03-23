@@ -484,19 +484,38 @@
 
     video.addEventListener("ended", handleEnd);
 
-    // ===== 兜底 =====
+    // ===== 兜底检测 - 确保真正播放完毕 =====
+    let endCheckCounter = 0;
     const endCheck = setInterval(() => {
       if (video.__endedHandled) {
         clearInterval(endCheck);
         return;
       }
 
-      if (
-        hasValidDuration(video) &&
-        video.currentTime >= video.duration - CONFIG.END_THRESHOLD
-      ) {
-        log("检测到结尾 → 强制结束");
+      // 视频已标记为 ended
+      if (video.ended) {
+        log("✅ 视频 ended 属性为 true，确认播放完毕");
         handleEnd();
+        return;
+      }
+
+      // 严格检查：必须在结尾附近且持续一段时间
+      if (hasValidDuration(video)) {
+        const timeRemaining = video.duration - video.currentTime;
+        
+        // 必须在最后 3 秒内
+        if (timeRemaining <= 3) {
+          endCheckCounter++;
+          
+          // 连续 3 次检查都在结尾（约 3 秒），确认真的结束了
+          if (endCheckCounter >= 3) {
+            log(`✅ 检测到结尾停留 (${timeRemaining.toFixed(1)}s)，确认播放完毕`);
+            handleEnd();
+          }
+        } else {
+          // 重置计数器
+          endCheckCounter = 0;
+        }
       }
     }, CONFIG.META_CHECK_INTERVAL);
     video.__timers.push(endCheck);

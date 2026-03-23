@@ -2,7 +2,7 @@
 // @name         超星学习通自动刷课
 // @namespace    http://tampermonkey.net/
 // @version      2.4
-// @description  自动播放视频、跳过已完成章节、全章节确认扫描、跳过PPT测试、倍速播放、卡顿检测
+// @description  自动播放视频、跳过已完成章节、全章节确认扫描、防提前跳转、跳过PPT测试、倍速播放、卡顿检测
 // @author       You
 // @match        https://mooc1.chaoxing.com/mycourse/studentstudy*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=chaoxing.com
@@ -496,19 +496,38 @@
 
     video.addEventListener("ended", handleEnd);
 
-    // ===== 兜底 =====
+    // ===== 兜底检测 - 确保真正播放完毕 =====
+    let endCheckCounter = 0;
     const endCheck = setInterval(() => {
       if (video.__endedHandled) {
         clearInterval(endCheck);
         return;
       }
 
-      if (
-        hasValidDuration(video) &&
-        video.currentTime >= video.duration - CONFIG.END_THRESHOLD
-      ) {
-        log("检测到结尾 → 强制结束");
+      // 视频已标记为 ended
+      if (video.ended) {
+        log("✅ 视频 ended 属性为 true，确认播放完毕");
         handleEnd();
+        return;
+      }
+
+      // 严格检查：必须在结尾附近且持续一段时间
+      if (hasValidDuration(video)) {
+        const timeRemaining = video.duration - video.currentTime;
+        
+        // 必须在最后 3 秒内
+        if (timeRemaining <= 3) {
+          endCheckCounter++;
+          
+          // 连续 3 次检查都在结尾（约 3 秒），确认真的结束了
+          if (endCheckCounter >= 3) {
+            log(`✅ 检测到结尾停留 (${timeRemaining.toFixed(1)}s)，确认播放完毕`);
+            handleEnd();
+          }
+        } else {
+          // 重置计数器
+          endCheckCounter = 0;
+        }
       }
     }, CONFIG.META_CHECK_INTERVAL);
     video.__timers.push(endCheck);
