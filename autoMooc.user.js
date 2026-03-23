@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         超星学习通自动刷课
 // @namespace    http://tampermonkey.net/
-// @version      2.4.1
-// @description  自动播放视频、跳过已完成章节、定时检测非视频章节、全章节确认扫描、防提前跳转、跳过PPT测试、倍速播放、卡顿检测
+// @version      2.4.2
+// @description  自动播放视频、跳过已完成章节、定时检测非视频章节、全章节确认扫描、防提前跳转、跳过PPT测试、倍速播放、卡顿检测、完成状态显示
 // @author       You
 // @match        https://mooc1.chaoxing.com/mycourse/studentstudy*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=chaoxing.com
@@ -42,6 +42,7 @@
   let firstPassCompleted = false;
   let processedChapters = new Set();
   let isRescanning = false;
+  let allCompleted = false;
   let skipCompletedChapters = true;
   let rescanStats = {
     total: 0,
@@ -336,6 +337,7 @@
       log("  - 重新播放未完成:", rescanStats.incomplete);
       log("========================================");
       isRescanning = false;
+      allCompleted = true;
       updateControlPanel();
       return;
     }
@@ -406,6 +408,7 @@
     log("  - 重新播放未完成:", rescanStats.incomplete);
     log("========================================");
     isRescanning = false;
+    allCompleted = true;
     updateControlPanel();
   }
 
@@ -413,7 +416,10 @@
   function updateControlPanel() {
     const statusEl = document.getElementById("autoMooc-status");
     if (statusEl) {
-      if (isRescanning) {
+      if (allCompleted) {
+        statusEl.textContent = "🎉 已全部完成";
+        statusEl.style.color = "#00ff00";
+      } else if (isRescanning) {
         statusEl.textContent = "重扫描中";
         statusEl.style.color = "#ffa500";
       } else if (enabled) {
@@ -681,6 +687,15 @@
         skipCompletedChapters = !skipCompletedChapters;
         document.getElementById("autoMooc-skipcomplete").textContent = skipCompletedChapters ? "跳过已完成" : "不跳过已完成";
         log(skipCompletedChapters ? "启用跳过已完成章节" : "禁用跳过已完成章节");
+        // 如果重新启用且之前已完成，重置状态
+        if (skipCompletedChapters && allCompleted) {
+          allCompleted = false;
+          firstPassCompleted = false;
+          processedChapters.clear();
+          rescanStats = { total: 0, skipped: 0, completed: 0, incomplete: 0 };
+          updateControlPanel();
+          log("🔄 重置完成状态，重新开始扫描");
+        }
       };
     }, CONFIG.CONTROL_PANEL_DELAY);
   }
