@@ -2,7 +2,14 @@
 
 ## Project Overview
 
-Single-file browser userscript for auto-advancing video chapters in online learning platforms. No build system, no dependencies, no tests.
+Browser userscript for auto-advancing video chapters on Chaoxing MOOC platform. Features video monitoring, playback speed control, and multiple play modes. No build system, no dependencies, no tests.
+
+### Files
+- `autoMooc.js` - Base version (standalone)
+- `autoMooc.user.js` - Tampermonkey version with metadata header
+
+### Target Platform
+- Chaoxing Learning Platform (mooc1.chaoxing.com)
 
 ---
 
@@ -11,8 +18,9 @@ Single-file browser userscript for auto-advancing video chapters in online learn
 **No build system present.** This is a standalone JavaScript file.
 
 ### Running the Script
-- **Browser**: Load via userscript manager (Tampermonkey, Violentmonkey, Greasemonkey)
-- **Testing**: Manual testing in target website only
+- **Userscript**: Install `autoMooc.user.js` via Tampermonkey/Violentmonkey
+- **Standalone**: Copy `autoMooc.js` content to browser console
+- **Testing**: Manual testing on mooc1.chaoxing.com only
 
 ### No Automated Tests
 No test framework configured. Changes require manual verification.
@@ -29,22 +37,23 @@ No ESLint, Prettier, or other linters configured.
 **IIFE Pattern** (Immediately Invoked Function Expression):
 ```javascript
 (function () {
-  // 1. Constants (SCREAMING_SNAKE_CASE)
-  const SCAN_INTERVAL = 3000;
+  // 1. CONFIG object with all constants
+  const CONFIG = { SCAN_INTERVAL: 3000, ... };
   
-  // 2. Module state
+  // 2. Module state variables
   let currentVideo = null;
+  let enabled = true;
+  let playFromStart = false;
   
   // 3. Utility functions
   function log(...args) { ... }
   
-  // 4. Business logic with section markers
+  // 4. Business logic with Chinese section markers
   // ===== 深度查找 video =====
   function findVideoDeep(doc) { ... }
   
-  // 5. Entry point
-  log("脚本启动");
-  scan();
+  // 5. Entry point with delay
+  setTimeout(() => { scan(); }, CONFIG.PAGE_LOAD_DELAY);
 })();
 ```
 
@@ -52,10 +61,11 @@ No ESLint, Prettier, or other linters configured.
 
 | Type | Convention | Example |
 |------|------------|---------|
-| Constants | `SCREAMING_SNAKE_CASE` | `SCAN_INTERVAL`, `SWITCH_DELAY` |
-| Functions | `camelCase` | `findVideoDeep`, `skipNearEnd` |
-| Variables | `camelCase` | `currentVideo`, `metaTimer` |
-| Internal flags | `__doubleUnderscore` | `video.__endedHandled` |
+| Config object | `CONFIG` (all caps) | `CONFIG.SCAN_INTERVAL` |
+| Constants in CONFIG | `SCREAMING_SNAKE_CASE` | `SCAN_INTERVAL`, `STUCK_THRESHOLD` |
+| Functions | `camelCase` | `findVideoDeep`, `skipNearEnd`, `monitorPlayback` |
+| Variables | `camelCase` | `currentVideo`, `enabled`, `preferredSpeed` |
+| Internal flags | `__doubleUnderscore` | `video.__endedHandled`, `video.__timers` |
 
 ### Formatting
 
@@ -125,13 +135,30 @@ setTimeout(() => {
 
 **Module-scoped state**:
 ```javascript
-let currentVideo = null;  // Track bound video element
+let currentVideo = null;
+let enabled = true;
+let playFromStart = false;
+let autoRefresh = true;
+let preferredSpeed = 2;
+let lastProgress = 0;
+let lastProgressTime = Date.now();
 ```
 
-**Element-attached flags**:
+**Element-attached state**:
 ```javascript
-video.__endedHandled = true;  // Prevent duplicate handling
-scan.__noVideoHandled = false;  // Function-attached state
+video.__endedHandled = true;
+video.__timers = [];  // Array of interval IDs for cleanup
+scan.__noVideoHandled = false;
+```
+
+**Timer cleanup pattern**:
+```javascript
+function cleanupVideo(video) {
+  if (video.__timers) {
+    video.__timers.forEach(t => clearInterval(t));
+    video.__timers = [];
+  }
+}
 ```
 
 ---
@@ -183,9 +210,56 @@ Manual verification required for:
 
 ---
 
+## Features
+
+### Core Features
+- **Video Auto-play**: Automatically detects and plays video content across iframes
+- **Chapter Navigation**: Auto-advances to next chapter when video ends
+- **Skip Non-Video Content**: Automatically skips PPT, tests, quizzes, and homework chapters
+- **Playback Speed Control**: Supports 0.75x, 1x, 1.25x, 1.5x, 2x speeds
+- **Stuck Detection**: Refreshes page if video progress stalls for 30+ seconds
+
+### v2.3 New Features
+- **Chapter Completion Detection**: Detects completed chapters via `.icon_Completed` CSS class and skips them
+- **Rescan Mechanism**: After first pass through all chapters, rescans for incomplete videos
+- **Completion Skip Toggle**: Control panel button to enable/disable chapter completion skipping
+- **Debug Logging**: Console logs show completion detection details
+
+### Control Panel Buttons
+- **暂停/恢复**: Toggle script on/off
+- **跳过**: Manually skip current chapter
+- **从头播放/拖到底**: Toggle play-from-start vs skip-to-end modes
+- **自动刷新/禁用刷新**: Toggle auto-refresh on video stuck
+- **0.75x/1x/1.25x/1.5x/2x**: Cycle playback speed
+- **跳过已完成/不跳过已完成**: Toggle chapter completion detection
+
+## Chapter Completion Detection
+
+### Detection Logic
+Completed chapters are identified by the presence of `.icon_Completed` class:
+
+```javascript
+function isChapterCompleted(el) {
+  const item = el.closest('.posCatalog_select, li, .chapter');
+  const completedIcon = item.querySelector('.icon_Completed, .icon_completed, [class*="Completed"]');
+  return !!completedIcon;
+}
+```
+
+### DOM Structure
+```
+LI (chapter container)
+└── DIV.posCatalog_select
+    ├── SPAN.posCatalog_name (chapter title)
+    ├── EM.posCatalog_sbar
+    ├── SPAN.icon_Completed.prevTips  ← Completion marker
+    └── SPAN.prevHoverTips
+```
+
 ## Project Context
 
 **Purpose**: Automate video chapter progression in online learning platforms  
 **Deployment**: Browser userscript (injected via extension)  
 **Maintenance**: Single developer, manual testing only
+**Version**: 2.3
 
