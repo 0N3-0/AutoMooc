@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         超星学习通自动刷课
 // @namespace    http://tampermonkey.net/
-// @version      2.3.1
-// @description  自动播放视频、跳过已完成章节、全章节确认扫描、防提前跳转、跳过PPT测试、倍速播放、卡顿检测
+// @version      2.4.0
+// @description  自动播放视频、跳过已完成章节、定时检测非视频章节、全章节确认扫描、防提前跳转、跳过PPT测试、倍速播放、卡顿检测
 // @author       You
 // @match        https://mooc1.chaoxing.com/mycourse/studentstudy*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=chaoxing.com
@@ -26,7 +26,8 @@
     END_CHECK_WINDOW: 3,
     END_CHECK_COUNT: 3,
     VIDEO_CACHE_TTL: 2000,
-    CATALOG_CACHE_TTL: 5000
+    CATALOG_CACHE_TTL: 5000,
+    CHAPTER_TYPE_CHECK_INTERVAL: 5000
   };
 
   let currentVideo = null;
@@ -241,6 +242,48 @@
     }
 
     setTimeout(scan, CONFIG.SWITCH_DELAY);
+  }
+
+  // ===== 定时检测当前章节类型并自动跳过非视频章节 =====
+  let lastCheckedChapterIndex = -1;
+
+  function checkAndSkipNonVideoChapter() {
+    if (!enabled) return;
+
+    try {
+      const list = getCatalogItems();
+      if (!list.length) return;
+
+      const currentIdx = findCurrentIndex(list);
+      const chapter = list[currentIdx];
+
+      if (!chapter) return;
+
+      // 避免重复检测同一章节
+      if (currentIdx === lastCheckedChapterIndex) return;
+      lastCheckedChapterIndex = currentIdx;
+
+      const title = chapter.title;
+
+      // 检查是否为非视频章节
+      if (isSkipChapter(title)) {
+        log(`⏭️ 自动跳过非视频章节 [${currentIdx}]: ${title}`);
+        next();
+        return;
+      }
+
+      // 检查是否已完成
+      if (skipCompletedChapters && isChapterCompleted(chapter.el)) {
+        log(`✅ 自动跳过已完成章节 [${currentIdx}]: ${title}`);
+        next();
+        return;
+      }
+
+      log(`📍 当前为视频章节 [${currentIdx}]: ${title}`);
+
+    } catch (e) {
+      log("章节类型检测异常:", e);
+    }
   }
 
   // ===== 切换章节 =====
@@ -634,12 +677,19 @@
 
   // ===== 启动 =====
   log("脚本启动，等待页面加载...");
-  
+
   setTimeout(() => {
     log("开始运行");
     createControls();
     scan();
     setInterval(scan, CONFIG.SCAN_INTERVAL);
+
+    // 启动章节类型定时检测
+    setInterval(() => {
+      if (enabled && !currentVideo) {
+        checkAndSkipNonVideoChapter();
+      }
+    }, CONFIG.CHAPTER_TYPE_CHECK_INTERVAL);
   }, CONFIG.PAGE_LOAD_DELAY);
 
 })();
