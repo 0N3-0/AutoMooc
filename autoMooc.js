@@ -25,18 +25,31 @@
   let processedChapters = new Set();
   let isRescanning = false;
   let skipCompletedChapters = true;
-  let debugMode = true;
 
   function log(...args) {
     console.log("[AutoNext]", ...args);
   }
 
+  // ===== 视频查找缓存 =====
+  let cachedVideo = null;
+  let lastVideoCheck = 0;
+  const VIDEO_CACHE_TTL = 2000;
+
   // ===== 深度查找 video =====
   function findVideoDeep(doc) {
+    const now = Date.now();
+    if (cachedVideo && cachedVideo.isConnected && (now - lastVideoCheck) < VIDEO_CACHE_TTL) {
+      return cachedVideo;
+    }
+    
     if (!doc) return null;
 
     const v = doc.querySelector("video");
-    if (v) return v;
+    if (v) {
+      cachedVideo = v;
+      lastVideoCheck = now;
+      return v;
+    }
 
     const iframes = doc.querySelectorAll("iframe");
 
@@ -46,18 +59,27 @@
         if (!subDoc) continue;
 
         const found = findVideoDeep(subDoc);
-        if (found) return found;
+        if (found) {
+          cachedVideo = found;
+          lastVideoCheck = now;
+          return found;
+        }
       } catch {}
     }
 
     return null;
   }
 
+  // ===== 验证视频 duration 是否有效 =====
+  function hasValidDuration(video, minDuration = 0) {
+    return isFinite(video.duration) && video.duration > minDuration;
+  }
+
   // ===== 跳到接近结尾 =====
   function skipNearEnd(video) {
     if (!enabled || playFromStart) return false;
     
-    if (!isFinite(video.duration) || video.duration === 0) {
+    if (!hasValidDuration(video)) {
       log("duration 不可用");
       return false;
     }
@@ -69,14 +91,27 @@
     return true;
   }
 
+  // ===== 目录缓存 =====
+  let cachedCatalogItems = null;
+  let lastCatalogCheck = 0;
+  const CATALOG_CACHE_TTL = 5000;
+
   // ===== 获取目录 =====
   function getCatalogItems() {
+    const now = Date.now();
+    if (cachedCatalogItems && (now - lastCatalogCheck) < CATALOG_CACHE_TTL) {
+      return cachedCatalogItems;
+    }
+    
     const doc = window.top.document;
 
-    return Array.from(doc.querySelectorAll(".posCatalog_name")).map(el => ({
+    cachedCatalogItems = Array.from(doc.querySelectorAll(".posCatalog_name")).map(el => ({
       el,
       title: el.getAttribute("title") || ""
     }));
+    lastCatalogCheck = now;
+    
+    return cachedCatalogItems;
   }
 
   // ===== 判断是否跳过 =====
@@ -257,29 +292,6 @@
     updateControlPanel();
   }
 
-  // ===== 查找并跳转到下一个未完成的章节 =====
-  function jumpToNextIncomplete(list, startIndex) {
-    for (let i = startIndex + 1; i < list.length; i++) {
-      const chapter = list[i];
-
-      if (isSkipChapter(chapter.title)) {
-        log("跳过:", chapter.title);
-        continue;
-      }
-
-      if (isChapterCompleted(chapter.el)) {
-        log("已完成，跳过:", chapter.title);
-        continue;
-      }
-
-      log("跳转到未完成章节:", i, chapter.title);
-      chapter.el.click();
-      return true;
-    }
-
-    return false;
-  }
-
   // ===== 更新控制面板状态 =====
   function updateControlPanel() {
     const statusEl = document.getElementById("autoMooc-status");
@@ -367,7 +379,7 @@
 
     // ===== 等待 duration =====
     function waitForDuration() {
-      if (isFinite(video.duration) && video.duration > 0) {
+      if (hasValidDuration(video)) {
         log("duration:", video.duration);
         if (!playFromStart) skipNearEnd(video);
       } else {
@@ -377,7 +389,7 @@
         }, { once: true });
         
         const metaTimer = setInterval(() => {
-          if (isFinite(video.duration) && video.duration > 0) {
+          if (hasValidDuration(video)) {
             log("duration:", video.duration);
             if (!playFromStart) skipNearEnd(video);
             clearInterval(metaTimer);
@@ -395,7 +407,7 @@
         return;
       }
 
-      if (isFinite(video.duration) && video.duration > CONFIG.SKIP_TO_END_OFFSET) {
+      if (hasValidDuration(video, CONFIG.SKIP_TO_END_OFFSET)) {
         if (video.currentTime < video.duration - CONFIG.SKIP_TO_END_OFFSET) {
           log("强制拉进度");
           video.currentTime = video.duration - CONFIG.SKIP_TO_END_OFFSET;
@@ -424,7 +436,7 @@
       }
 
       if (
-        isFinite(video.duration) &&
+        hasValidDuration(video) &&
         video.currentTime >= video.duration - CONFIG.END_THRESHOLD
       ) {
         log("检测到结尾 → 强制结束");
