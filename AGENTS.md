@@ -246,6 +246,13 @@ const CONFIG = {
 - **Playback Speed Control**: Supports 0.75x, 1x, 1.25x, 1.5x, 2x speeds
 - **Stuck Detection**: Refreshes page if video progress stalls for 30+ seconds
 
+### v2.4.1 Bug Fixes
+- **Fixed Playback Speed Not Applied After Rescan**: Reset `currentVideo` to `null` on all chapter navigation paths
+  - Fixed in `handleFirstPassComplete()` before clicking incomplete chapters
+  - Fixed in `handleEnd()` after video cleanup
+  - Fixed in `handlePostChapterNavigation()` before navigation
+  - Ensures `bind()` function treats new video as fresh binding and applies `preferredSpeed`
+
 ### v2.4.0 New Features
 - **Periodic Chapter Type Detection**: Every 5 seconds (`CHAPTER_TYPE_CHECK_INTERVAL`), checks current chapter type
   - Automatically skips PPT/quiz/test chapters without waiting for manual navigation
@@ -335,5 +342,5 @@ LI (chapter container)
 **Purpose**: Automate video chapter progression in online learning platforms  
 **Deployment**: Browser userscript (injected via extension)  
 **Maintenance**: Single developer, manual testing only
-**Version**: 2.4.0
+**Version**: 2.4.1
 
