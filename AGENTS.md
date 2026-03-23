@@ -230,7 +230,8 @@ const CONFIG = {
   END_CHECK_WINDOW: 3,              // End detection window (seconds)
   END_CHECK_COUNT: 3,               // Required consecutive checks
   VIDEO_CACHE_TTL: 2000,            // Video cache validity (ms)
-  CATALOG_CACHE_TTL: 5000           // Catalog cache validity (ms)
+  CATALOG_CACHE_TTL: 5000,          // Catalog cache validity (ms)
+  CHAPTER_TYPE_CHECK_INTERVAL: 5000 // Chapter type detection interval (ms)
 };
 ```
 
@@ -244,6 +245,13 @@ const CONFIG = {
 - **Skip Non-Video Content**: Automatically skips PPT, tests, quizzes, and homework chapters
 - **Playback Speed Control**: Supports 0.75x, 1x, 1.25x, 1.5x, 2x speeds
 - **Stuck Detection**: Refreshes page if video progress stalls for 30+ seconds
+
+### v2.4.0 New Features
+- **Periodic Chapter Type Detection**: Every 5 seconds (`CHAPTER_TYPE_CHECK_INTERVAL`), checks current chapter type
+  - Automatically skips PPT/quiz/test chapters without waiting for manual navigation
+  - Automatically skips completed chapters when detected on non-video pages
+  - Only activates when no video is currently playing
+  - Prevents getting stuck on non-video content
 
 ### v2.3.1 Optimizations
 - **Video End Detection Enhancement**: 3-second continuous verification to prevent premature chapter switching
@@ -327,5 +335,5 @@ LI (chapter container)
 **Purpose**: Automate video chapter progression in online learning platforms  
 **Deployment**: Browser userscript (injected via extension)  
 **Maintenance**: Single developer, manual testing only
-**Version**: 2.3.1
+**Version**: 2.4.0
 
