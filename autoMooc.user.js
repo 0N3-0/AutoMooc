@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星学习通自动刷课
 // @namespace    http://tampermonkey.net/
-// @version      2.4.0
+// @version      2.4.1
 // @description  自动播放视频、跳过已完成章节、定时检测非视频章节、全章节确认扫描、防提前跳转、跳过PPT测试、倍速播放、卡顿检测
 // @author       You
 // @match        https://mooc1.chaoxing.com/mycourse/studentstudy*
@@ -226,6 +226,10 @@
 
   // ===== 章节跳转后处理 =====
   function handlePostChapterNavigation(list, current, useButton = false) {
+    // 重置视频状态，确保新章节能正确绑定
+    cleanupVideo(currentVideo);
+    currentVideo = null;
+    
     let success;
     if (useButton) {
       success = clickNextButton();
@@ -381,6 +385,11 @@
       // 找到未完成的视频章节，开始播放
       log(`[${i + 1}/${list.length}] 🎬 重新播放未完成:`, chapter.title);
       rescanStats.incomplete++;
+      
+      // 重置 currentVideo 确保新视频能正确绑定
+      cleanupVideo(currentVideo);
+      currentVideo = null;
+      
       chapter.el.click();
       setTimeout(scan, CONFIG.SWITCH_DELAY);
       return;
@@ -531,6 +540,7 @@
 
       log("播放结束 → 下一节");
       cleanupVideo(video);
+      currentVideo = null;
       next();
     }
 
