@@ -175,10 +175,11 @@ function cleanupVideo(video) {
 
 ### Before Making Changes
 
-1. **Read the entire file** — only 262 lines, understand full context
+1. **Read the entire file** — ~630 lines, understand full context
 2. **Test manually** — no automated tests exist
 3. **Preserve IIFE wrapper** — maintains encapsulation
 4. **Match existing patterns** — consistency over personal preference
+5. **Version management** — optimizations use small versions (2.3.1), features use big versions (2.4.0)
 
 ### Common Tasks
 
@@ -210,6 +211,31 @@ Manual verification required for:
 
 ---
 
+## Configuration
+
+All timing and behavior constants are centralized in the `CONFIG` object:
+
+```javascript
+const CONFIG = {
+  SCAN_INTERVAL: 3000,              // Main loop interval (ms)
+  SWITCH_DELAY: 8000,               // Chapter switch delay (ms)
+  SKIP_TO_END_OFFSET: 5,            // Seconds from end when skipping
+  FORCE_CHECK_INTERVAL: 3000,       // Anti-drag interval (ms)
+  META_CHECK_INTERVAL: 1000,        // Metadata check interval (ms)
+  PAGE_LOAD_DELAY: 5000,            // Startup delay (ms)
+  STUCK_THRESHOLD: 30000,           // Stuck detection threshold (ms)
+  PLAYBACK_CHECK_INTERVAL: 5000,    // Playback monitoring interval (ms)
+  CONFIRM_DIALOG_DELAY: 1000,       // Confirm button click delay (ms)
+  CONTROL_PANEL_DELAY: 2000,        // Control panel init delay (ms)
+  END_CHECK_WINDOW: 3,              // End detection window (seconds)
+  END_CHECK_COUNT: 3,               // Required consecutive checks
+  VIDEO_CACHE_TTL: 2000,            // Video cache validity (ms)
+  CATALOG_CACHE_TTL: 5000           // Catalog cache validity (ms)
+};
+```
+
+---
+
 ## Features
 
 ### Core Features
@@ -219,11 +245,18 @@ Manual verification required for:
 - **Playback Speed Control**: Supports 0.75x, 1x, 1.25x, 1.5x, 2x speeds
 - **Stuck Detection**: Refreshes page if video progress stalls for 30+ seconds
 
+### v2.3.1 Optimizations
+- **Video End Detection Enhancement**: 3-second continuous verification to prevent premature chapter switching
+- **Code Refactoring**: Extracted `handlePostChapterNavigation()` and `onDurationReady()` helpers to reduce duplication
+- **Configuration Consolidation**: All timing constants moved to CONFIG object (no hardcoded values)
+- **Dead Code Removal**: Removed unused `END_THRESHOLD` and `rescanStats.processed` array
+- **Performance Caching**: Added `VIDEO_CACHE_TTL` and `CATALOG_CACHE_TTL` to CONFIG
+
 ### v2.3 New Features
 - **Chapter Completion Detection**: Detects completed chapters via `.icon_Completed` CSS class and skips them
-- **Rescan Mechanism**: After first pass through all chapters, rescans for incomplete videos
+- **Rescan Mechanism**: After first pass through all chapters, rescans for incomplete videos with detailed progress tracking
 - **Completion Skip Toggle**: Control panel button to enable/disable chapter completion skipping
-- **Debug Logging**: Console logs show completion detection details
+- **Debug Logging**: Console logs show completion detection details with emoji indicators
 
 ### Control Panel Buttons
 - **暂停/恢复**: Toggle script on/off
@@ -232,6 +265,39 @@ Manual verification required for:
 - **自动刷新/禁用刷新**: Toggle auto-refresh on video stuck
 - **0.75x/1x/1.25x/1.5x/2x**: Cycle playback speed
 - **跳过已完成/不跳过已完成**: Toggle chapter completion detection
+
+## Video End Detection (v2.3.1)
+
+### Dual Detection Strategy
+To prevent premature chapter switching, the script uses a two-layer detection system:
+
+1. **Primary Detection**: `ended` event listener
+   - Most accurate method
+   - Triggers immediately when video naturally ends
+
+2. **Fallback Detection**: Continuous verification (v2.3.1 enhancement)
+   - Requires video to be within last 3 seconds (`END_CHECK_WINDOW`)
+   - Requires 3 consecutive checks (`END_CHECK_COUNT`) over ~3 seconds
+   - Counter resets if video moves away from end
+   - Prevents false triggers from buffering or seeking
+
+```javascript
+// Primary: ended event
+video.addEventListener("ended", handleEnd);
+
+// Fallback: continuous verification
+let endCheckCounter = 0;
+if (timeRemaining <= CONFIG.END_CHECK_WINDOW) {
+  endCheckCounter++;
+  if (endCheckCounter >= CONFIG.END_CHECK_COUNT) {
+    handleEnd();  // Confirmed end
+  }
+} else {
+  endCheckCounter = 0;  // Reset if moved away
+}
+```
+
+---
 
 ## Chapter Completion Detection
 
@@ -261,5 +327,5 @@ LI (chapter container)
 **Purpose**: Automate video chapter progression in online learning platforms  
 **Deployment**: Browser userscript (injected via extension)  
 **Maintenance**: Single developer, manual testing only
-**Version**: 2.3
+**Version**: 2.3.1
 
