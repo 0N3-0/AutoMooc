@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         超星学习通自动刷课
 // @namespace    http://tampermonkey.net/
-// @version      2.4
+// @version      2.3.1
 // @description  自动播放视频、跳过已完成章节、全章节确认扫描、防提前跳转、跳过PPT测试、倍速播放、卡顿检测
 // @author       You
 // @match        https://mooc1.chaoxing.com/mycourse/studentstudy*
@@ -16,12 +16,17 @@
     SCAN_INTERVAL: 3000,
     SWITCH_DELAY: 8000,
     SKIP_TO_END_OFFSET: 5,
-    END_THRESHOLD: 0.5,
     FORCE_CHECK_INTERVAL: 3000,
     META_CHECK_INTERVAL: 1000,
     PAGE_LOAD_DELAY: 5000,
     STUCK_THRESHOLD: 30000,
-    PLAYBACK_CHECK_INTERVAL: 5000
+    PLAYBACK_CHECK_INTERVAL: 5000,
+    CONFIRM_DIALOG_DELAY: 1000,
+    CONTROL_PANEL_DELAY: 2000,
+    END_CHECK_WINDOW: 3,
+    END_CHECK_COUNT: 3,
+    VIDEO_CACHE_TTL: 2000,
+    CATALOG_CACHE_TTL: 5000
   };
 
   let currentVideo = null;
@@ -41,8 +46,7 @@
     total: 0,
     skipped: 0,
     completed: 0,
-    incomplete: 0,
-    processed: []
+    incomplete: 0
   };
 
   function log(...args) {
@@ -52,12 +56,11 @@
   // ===== 视频查找缓存 =====
   let cachedVideo = null;
   let lastVideoCheck = 0;
-  const VIDEO_CACHE_TTL = 2000;
 
   // ===== 深度查找 video =====
   function findVideoDeep(doc) {
     const now = Date.now();
-    if (cachedVideo && cachedVideo.isConnected && (now - lastVideoCheck) < VIDEO_CACHE_TTL) {
+    if (cachedVideo && cachedVideo.isConnected && (now - lastVideoCheck) < CONFIG.VIDEO_CACHE_TTL) {
       return cachedVideo;
     }
     
@@ -113,12 +116,11 @@
   // ===== 目录缓存 =====
   let cachedCatalogItems = null;
   let lastCatalogCheck = 0;
-  const CATALOG_CACHE_TTL = 5000;
 
   // ===== 获取目录 =====
   function getCatalogItems() {
     const now = Date.now();
-    if (cachedCatalogItems && (now - lastCatalogCheck) < CATALOG_CACHE_TTL) {
+    if (cachedCatalogItems && (now - lastCatalogCheck) < CONFIG.CATALOG_CACHE_TTL) {
       return cachedCatalogItems;
     }
     
@@ -191,7 +193,7 @@
           log("点击确认 下一节");
           confirmBtn.click();
         }
-      }, 1000);
+      }, CONFIG.CONFIRM_DIALOG_DELAY);
 
       return true;
     }
@@ -221,6 +223,26 @@
     return false;
   }
 
+  // ===== 章节跳转后处理 =====
+  function handlePostChapterNavigation(list, current, useButton = false) {
+    let success;
+    if (useButton) {
+      success = clickNextButton();
+      if (!success) {
+        log("按钮失败 → fallback");
+      }
+    } else {
+      success = jumpNextValid(list, current);
+    }
+
+    if (!success && !jumpNextValid(list, current)) {
+      log("没有后续视频，检查是否需要重扫描");
+      handleFirstPassComplete(list);
+    }
+
+    setTimeout(scan, CONFIG.SWITCH_DELAY);
+  }
+
   // ===== 切换章节 =====
   function next() {
     const list = getCatalogItems();
@@ -238,42 +260,20 @@
 
     if (skipCompletedChapters && isChapterCompleted(el)) {
       log("当前章节已完成 → 跳过");
-
-      if (!jumpNextValid(list, current)) {
-        log("没有后续视频，检查是否需要重扫描");
-        handleFirstPassComplete(list);
-      }
-
-      setTimeout(scan, CONFIG.SWITCH_DELAY);
+      handlePostChapterNavigation(list, current);
       return;
     }
 
     // ===== 当前是跳过类型 =====
     if (isSkipChapter(title)) {
       log("当前是跳过章节 → index跳");
-
-      if (!jumpNextValid(list, current)) {
-        log("没有后续视频，检查是否需要重扫描");
-        handleFirstPassComplete(list);
-      }
-
-      setTimeout(scan, CONFIG.SWITCH_DELAY);
+      handlePostChapterNavigation(list, current);
       return;
     }
 
     // ===== 正常视频 =====
     log("正常视频 → 按钮跳转");
-
-    if (!clickNextButton()) {
-      log("按钮失败 → fallback");
-
-      if (!jumpNextValid(list, current)) {
-        log("没有后续视频，检查是否需要重扫描");
-        handleFirstPassComplete(list);
-      }
-    }
-
-    setTimeout(scan, CONFIG.SWITCH_DELAY);
+    handlePostChapterNavigation(list, current, true);
   }
 
   // ===== 处理第一轮完成后的重扫描 =====
@@ -325,22 +325,19 @@
       if (isSkipChapter(chapter.title)) {
         log(`[${i + 1}/${list.length}] ⏭️ 跳过非视频:`, chapter.title);
         rescanStats.skipped++;
-        rescanStats.processed.push({ index: i, title: chapter.title, status: 'skipped' });
         continue;
       }
-      
+
       // 检查是否已完成
       if (isChapterCompleted(chapter.el)) {
         log(`[${i + 1}/${list.length}] ✅ 已完成:`, chapter.title);
         rescanStats.completed++;
-        rescanStats.processed.push({ index: i, title: chapter.title, status: 'completed' });
         continue;
       }
-      
+
       // 找到未完成的视频章节，开始播放
       log(`[${i + 1}/${list.length}] 🎬 重新播放未完成:`, chapter.title);
       rescanStats.incomplete++;
-      rescanStats.processed.push({ index: i, title: chapter.title, status: 'incomplete' });
       chapter.el.click();
       setTimeout(scan, CONFIG.SWITCH_DELAY);
       return;
@@ -447,19 +444,19 @@
 
     // ===== 等待 duration =====
     function waitForDuration() {
-      if (hasValidDuration(video)) {
+      const onDurationReady = () => {
         log("duration:", video.duration);
         if (!playFromStart) skipNearEnd(video);
+      };
+
+      if (hasValidDuration(video)) {
+        onDurationReady();
       } else {
-        video.addEventListener("loadedmetadata", () => {
-          log("duration:", video.duration);
-          if (!playFromStart) skipNearEnd(video);
-        }, { once: true });
-        
+        video.addEventListener("loadedmetadata", onDurationReady, { once: true });
+
         const metaTimer = setInterval(() => {
           if (hasValidDuration(video)) {
-            log("duration:", video.duration);
-            if (!playFromStart) skipNearEnd(video);
+            onDurationReady();
             clearInterval(metaTimer);
           }
         }, CONFIG.META_CHECK_INTERVAL);
@@ -515,12 +512,12 @@
       if (hasValidDuration(video)) {
         const timeRemaining = video.duration - video.currentTime;
         
-        // 必须在最后 3 秒内
-        if (timeRemaining <= 3) {
+        // 必须在最后 CONFIG.END_CHECK_WINDOW 秒内
+        if (timeRemaining <= CONFIG.END_CHECK_WINDOW) {
           endCheckCounter++;
           
-          // 连续 3 次检查都在结尾（约 3 秒），确认真的结束了
-          if (endCheckCounter >= 3) {
+          // 连续 CONFIG.END_CHECK_COUNT 次检查都在结尾，确认真的结束了
+          if (endCheckCounter >= CONFIG.END_CHECK_COUNT) {
             log(`✅ 检测到结尾停留 (${timeRemaining.toFixed(1)}s)，确认播放完毕`);
             handleEnd();
           }
@@ -632,7 +629,7 @@
         document.getElementById("autoMooc-skipcomplete").textContent = skipCompletedChapters ? "跳过已完成" : "不跳过已完成";
         log(skipCompletedChapters ? "启用跳过已完成章节" : "禁用跳过已完成章节");
       };
-    }, 2000);
+    }, CONFIG.CONTROL_PANEL_DELAY);
   }
 
   // ===== 启动 =====
