@@ -243,7 +243,7 @@
       success = jumpNextValid(list, current);
     }
 
-    if (!success && !jumpNextValid(list, current)) {
+    if (!success) {
       log("没有后续视频，检查是否需要重扫描");
       handleFirstPassComplete(list);
     }
@@ -360,8 +360,7 @@
       total: list.length,
       skipped: 0,
       completed: 0,
-      incomplete: 0,
-      processed: []
+      incomplete: 0
     };
     
     updateControlPanel();
