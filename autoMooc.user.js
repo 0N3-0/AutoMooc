@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         超星学习通自动刷课
 // @namespace    http://tampermonkey.net/
-// @version      2.4.2
-// @description  自动播放视频、跳过已完成章节、定时检测非视频章节、全章节确认扫描、防提前跳转、跳过PPT测试、倍速播放、卡顿检测、完成状态显示
+// @version      2.5.0
+// @description  自动播放视频、跳过已完成章节、定时检测非视频章节、全章节确认扫描、防提前跳转、跳过PPT测试、倍速播放、卡顿检测、完成状态显示、自动续播
 // @author       You
 // @match        https://mooc1.chaoxing.com/mycourse/studentstudy*
 // @icon         https://www.google.com/s2/favicons?sz=64&domain=chaoxing.com
@@ -13,21 +13,22 @@
 (function () {
   // ===== 配置常量 =====
   const CONFIG = {
-    SCAN_INTERVAL: 3000,
-    SWITCH_DELAY: 8000,
-    SKIP_TO_END_OFFSET: 5,
-    FORCE_CHECK_INTERVAL: 3000,
-    META_CHECK_INTERVAL: 1000,
-    PAGE_LOAD_DELAY: 5000,
-    STUCK_THRESHOLD: 30000,
-    PLAYBACK_CHECK_INTERVAL: 5000,
-    CONFIRM_DIALOG_DELAY: 1000,
-    CONTROL_PANEL_DELAY: 2000,
-    END_CHECK_WINDOW: 3,
-    END_CHECK_COUNT: 3,
-    VIDEO_CACHE_TTL: 2000,
-    CATALOG_CACHE_TTL: 5000,
-    CHAPTER_TYPE_CHECK_INTERVAL: 5000
+    SCAN_INTERVAL: 3000,               // 主循环扫描间隔 (ms)
+    SWITCH_DELAY: 8000,                // 章节切换后等待新页面加载 (ms)
+    SKIP_TO_END_OFFSET: 5,             // 跳到底模式距结尾秒数 (s)
+    FORCE_CHECK_INTERVAL: 3000,        // 防拖回进度条检测间隔 (ms)
+    META_CHECK_INTERVAL: 1000,         // 等待 metadata 加载完成间隔 (ms)
+    PAGE_LOAD_DELAY: 5000,             // 页面加载后首次启动延迟 (ms)
+    STUCK_THRESHOLD: 30000,            // 卡顿阈值，超时自动刷新 (ms)
+    PLAYBACK_CHECK_INTERVAL: 5000,     // 卡顿检测轮询间隔 (ms)
+    CONFIRM_DIALOG_DELAY: 1000,        // 点击下一节后等待确认框出现 (ms)
+    CONTROL_PANEL_DELAY: 2000,         // 控制面板注入 DOM 延迟 (ms)
+    END_CHECK_WINDOW: 3,               // 兜底结束检测距结尾窗口 (s)
+    END_CHECK_COUNT: 3,                // 兜底结束检测连续触发次数
+    VIDEO_CACHE_TTL: 2000,             // 视频查找缓存过期时间 (ms)
+    CATALOG_CACHE_TTL: 5000,           // 目录列表缓存过期时间 (ms)
+    CHAPTER_TYPE_CHECK_INTERVAL: 5000, // 定时检测章节类型间隔 (ms)
+    AUTO_RESUME_INTERVAL: 5000         // 自动续播轮询间隔 (ms)
   };
 
   let currentVideo = null;
@@ -35,6 +36,7 @@
   let playFromStart = true;
   let autoRefresh = true;
   let preferredSpeed = 2;
+  let autoResume = true;
   let lastProgress = 0;
   let lastProgressTime = Date.now();
 
@@ -500,6 +502,19 @@
     setPlaybackSpeed(video, preferredSpeed);
     monitorPlayback(video);
 
+    // ===== 自动续播 =====
+    const resumeTimer = setInterval(() => {
+      if (!video || video.ended || !enabled || !autoResume) {
+        clearInterval(resumeTimer);
+        return;
+      }
+      if (video.paused) {
+        log("检测到暂停，自动恢复播放");
+        video.play().catch(() => {});
+      }
+    }, CONFIG.AUTO_RESUME_INTERVAL);
+    video.__timers.push(resumeTimer);
+
     // ===== 等待 duration =====
     function waitForDuration() {
       const onDurationReady = () => {
@@ -638,6 +653,7 @@
       <button id="autoMooc-mode">${playFromStart ? "从头播放" : "拖到底"}</button>
       <button id="autoMooc-refresh">${autoRefresh ? "自动刷新" : "禁用刷新"}</button>
       <button id="autoMooc-speed">${preferredSpeed}x</button>
+      <button id="autoMooc-resume">${autoResume ? "自动续播" : "暂停续播"}</button>
       <button id="autoMooc-skipcomplete">${skipCompletedChapters ? "跳过已完成" : "不跳过已完成"}</button>
     `;
     panel.style.cssText = `
@@ -681,6 +697,12 @@
         document.getElementById("autoMooc-speed").textContent = preferredSpeed + "x";
         if (currentVideo) setPlaybackSpeed(currentVideo, preferredSpeed);
         log("切换速度:", preferredSpeed + "x");
+      };
+
+      document.getElementById("autoMooc-resume").onclick = () => {
+        autoResume = !autoResume;
+        document.getElementById("autoMooc-resume").textContent = autoResume ? "自动续播" : "暂停续播";
+        log(autoResume ? "启用自动续播" : "禁用自动续播");
       };
 
       document.getElementById("autoMooc-skipcomplete").onclick = () => {
